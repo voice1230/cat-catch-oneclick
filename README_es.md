@@ -2,7 +2,7 @@
 
 # 📑Introducción
 
-Cat-Catch es una extensión de rastreo de recursos que puede ayudarlo a filtrar y enumerar los recursos de la página actual.
+Esta rama añade un botón de descarga de un solo clic basado en Cat-Catch.
 
 # 📖Instalación
 

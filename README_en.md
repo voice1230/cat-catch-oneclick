@@ -2,7 +2,7 @@
 
 # 📑Introduction
 
-Cat-Catch is a resource sniffing extension that can help you filter and list the resources of the current page.
+This fork adds a one-click download button based on Cat-Catch.
 
 # 📖Installation
 
