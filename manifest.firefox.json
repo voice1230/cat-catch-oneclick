@@ -10,7 +10,7 @@
   },
   "action": {
     "default_icon": "img/icon.png",
-    "default_title": "__MSG_catCatch__",
+    "default_title": "猫抓（一键下载）",
     "default_popup": "popup.html"
   },
   "description": "__MSG_description__",
@@ -19,7 +19,7 @@
     "128": "/img/icon128.png"
   },
   "manifest_version": 3,
-  "name": "__MSG_catCatch__",
+  "name": "猫抓（一键下载）",
   "homepage_url": "https://github.com/xifangczy/cat-catch",
   "options_ui": {
     "page": "options.html",

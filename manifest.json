@@ -4,7 +4,7 @@
   },
   "action": {
     "default_icon": "img/icon.png",
-    "default_title": "__MSG_catCatch__",
+    "default_title": "猫抓（一键下载）",
     "default_popup": "popup.html"
   },
   "side_panel": {
@@ -17,7 +17,7 @@
   },
   "manifest_version": 3,
   "minimum_chrome_version": "93",
-  "name": "__MSG_catCatch__",
+  "name": "猫抓（一键下载）",
   "homepage_url": "https://github.com/xifangczy/cat-catch",
   "options_ui": {
     "page": "options.html",
@@ -79,6 +79,17 @@
         "js/content-script.js"
       ],
       "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "js": [
+        "video-download-btn.js"
+      ],
+      "run_at": "document_idle",
       "all_frames": true
     }
   ],

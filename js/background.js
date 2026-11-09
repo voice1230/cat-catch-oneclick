@@ -1125,3 +1125,31 @@ chrome.runtime.onInstalled.addListener(function (details) {
 // chrome.storage.session.get(function (data) { console.log("storageSession", data.MediaData) });
 // chrome.declarativeNetRequest.getSessionRules(function (rules) { console.log("sessionRules", rules); });
 // chrome.tabs.query({}, function (tabs) { for (let item of tabs) { console.log("tabId", item.id); } });
+
+// ====== 视频下载按钮：后台下载代理（追加，不影响猫抓原有逻辑）======
+// content script 无法直接调用 chrome.downloads，统一由后台执行
+chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+    if (!msg || msg.type !== 'CATCATCH_DL') return false;
+    if (!msg.url) {
+        sendResponse({ ok: false, error: '缺少 url' });
+        return false;
+    }
+    try {
+        chrome.downloads.download({
+            url: msg.url,
+            filename: msg.filename || undefined,
+            saveAs: !!msg.saveAs
+        }, function (downloadId) {
+            var err = chrome.runtime.lastError;
+            if (err || downloadId === undefined) {
+                sendResponse({ ok: false, error: err ? err.message : 'download failed' });
+            } else {
+                sendResponse({ ok: true, id: downloadId });
+            }
+        });
+        return true; // 异步响应
+    } catch (e) {
+        sendResponse({ ok: false, error: String((e && e.message) || e) });
+        return false;
+    }
+});
