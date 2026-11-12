@@ -56,43 +56,99 @@
     setTimeout(() => a.remove(), 1000);
   }
 
-  function getSource(video) {
-    let src = video.currentSrc || video.getAttribute('src') || '';
-    if (!src) {
-      const s = video.querySelector('source[src]');
-      if (s) src = s.getAttribute('src');
+  // ---------------- 从被点击的 video 元素上提取真实地址线索 ----------------
+  const VIDEO_EXT = /\.(mp4|webm|mkv|flv|mov|m4v|ts|m3u8|mpd)(\?|#|$)/i;
+  function isVideoUrl(u) {
+    if (!u) return false;
+    return VIDEO_EXT.test(u) || /video\//i.test(u);
+  }
+  function extractVideoUrls(video) {
+    const out = [];
+    const add = (u) => {
+      if (!u) return;
+      u = String(u).trim();
+      if (/^https?:/i.test(u) && isVideoUrl(u)) out.push(u);
+    };
+    // 1) video 自身
+    try { add(video.currentSrc); } catch (_) {}
+    try { add(video.getAttribute('src')); } catch (_) {}
+    try { video.querySelectorAll('source[src]').forEach((s) => add(s.getAttribute('src'))); } catch (_) {}
+    // 2) 元素及祖先上的 data-* 属性（很多站点把真实地址放在 data-src / data-url 等）
+    let el = video;
+    for (let i = 0; i < 6 && el; i++) {
+      try {
+        for (const a of el.attributes) {
+          if (/^https?:/i.test(a.value) && isVideoUrl(a.value)) out.push(a.value);
+        }
+      } catch (_) {}
+      el = el.parentElement;
     }
-    if (src && !/^(https?:|blob:|data:|mediastream:|file:|\/\/)/i.test(src)) {
-      try { src = new URL(src, location.href).href; } catch (_) { /* 忽略 */ }
-    }
-    return src;
+    return [...new Set(out)];
   }
 
-  // ---------------- 从猫抓缓存里挑一个真实视频资源 ----------------
-  function pickCaughtMedia() {
+  // ---------------- 取猫抓该页全部资源 ----------------
+  function getCaughtList() {
     return new Promise((resolve) => {
       let done = false;
       const finish = (v) => { if (!done) { done = true; resolve(v); } };
-      const timer = setTimeout(() => finish(null), 2500);
+      const timer = setTimeout(() => finish([]), 2500);
       try {
         chrome.runtime.sendMessage({ Message: 'getData' }, (list) => {
           clearTimeout(timer);
-          if (chrome.runtime.lastError || !Array.isArray(list)) { finish(null); return; }
-          let best = null;
-          for (const it of list) {
-            if (!it) continue;
-            const url = it.url || it.src || '';
-            if (!url || /^blob:/i.test(url)) continue;
-            const isVid = /\.(mp4|webm|mkv|flv|mov|m4v|ts)(\?|#|$)/i.test(url) ||
-                          /video\//i.test(it.type || it.mime || '');
-            if (!isVid) continue;
-            const size = Number(it.size) || 0;
-            if (!best || size > best.size) best = { url: url, size: size };
-          }
-          finish(best);
+          if (chrome.runtime.lastError || !Array.isArray(list)) { finish([]); return; }
+          finish(list);
         });
-      } catch (_) { finish(null); }
+      } catch (_) { finish([]); }
     });
+  }
+
+  // ---------------- 候选选择浮层（多视频页避免下错） ----------------
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+  function closeChoices() {
+    const b = document.getElementById('catcatch-choices');
+    if (b) b.remove();
+  }
+  function showChoices(items) {
+    closeChoices();
+    const box = document.createElement('div');
+    box.id = 'catcatch-choices';
+    box.style.cssText =
+      'position:fixed;z-index:2147483647;right:12px;top:12px;background:#fff;color:#222;' +
+      'border:1px solid #e3e3e3;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.25);' +
+      'font:13px/1.4 system-ui,sans-serif;width:300px;max-height:72vh;overflow:auto;padding:12px;';
+    const title = document.createElement('div');
+    title.textContent = '检测到多个视频，请选择要下载的：';
+    title.style.cssText = 'font-weight:600;margin-bottom:8px;color:#ff5a5f;';
+    box.appendChild(title);
+    items.forEach((it, i) => {
+      const u = it.url || '';
+      const nm = nameFromUrl(u);
+      const sz = it.size ? (Number(it.size) / 1048576).toFixed(1) + ' MB' : '未知大小';
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.style.cssText =
+        'display:block;width:100%;text-align:left;margin:5px 0;padding:8px 10px;' +
+        'border:1px solid #eee;border-radius:8px;background:#fafafa;cursor:pointer;' +
+        'font:12px/1.4 system-ui,sans-serif;color:#222';
+      row.innerHTML = '<b>#' + (i + 1) + '</b> ' + escapeHtml(nm) +
+        '<br><span style="color:#888">' + sz + '</span>';
+      row.onclick = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        closeChoices();
+        requestDownload(u, nm).then((r) => {
+          toast(r && r.ok ? ('已触发下载：' + nm) : ('下载失败：' + ((r && r.error) || '未知')));
+        });
+      };
+      box.appendChild(row);
+    });
+    const close = document.createElement('div');
+    close.textContent = '✕ 关闭';
+    close.style.cssText = 'margin-top:8px;text-align:center;color:#999;cursor:pointer;font:12px system-ui;';
+    close.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeChoices(); };
+    box.appendChild(close);
+    (document.body || document.documentElement).appendChild(box);
   }
 
   // ---------------- 交给 background 下载 ----------------
@@ -121,27 +177,38 @@
   // ---------------- 下载主流程 ----------------
   async function download(video) {
     try {
-      toast('正在查找可下载的视频…');
-
-      // 1) 优先：猫抓已捕获的真实资源（最可靠，blob 也能下）
-      const caught = await pickCaughtMedia();
-      if (caught && caught.url) {
-        const nm = nameFromUrl(caught.url);
-        const r = await requestDownload(caught.url, nm);
+      // 1) 优先：被点击 video 自身能拿到的真实直链（点哪个下哪个，最精确）
+      const direct = extractVideoUrls(video).filter(
+        (u) => /^https?:/i.test(u) && !/\.(m3u8|mpd)(\?|#|$)/i.test(u)
+      );
+      for (const u of direct) {
+        const nm = nameFromUrl(u);
+        const r = await requestDownload(u, nm);
         if (r && r.ok) { toast('已触发下载：' + nm); return; }
       }
 
-      // 2) 退回：video 自身的 http(s) 直链
-      const src = getSource(video);
-      if (src && /^https?:/i.test(src) && !/\.(m3u8|mpd)(\?|#|$)/i.test(src)) {
-        const nm = nameFromUrl(src);
-        const r = await requestDownload(src, nm);
-        if (r && r.ok) { toast('已触发下载：' + nm); return; }
+      // 2) 退回：猫抓已捕获的资源
+      const list = await getCaughtList();
+      const vids = (list || []).filter((it) => {
+        const u = it && (it.url || it.src || '');
+        if (!u || /^blob:/i.test(u)) return false;
+        return isVideoUrl(u);
+      });
+      if (!vids.length) {
+        toast('未找到可下载的视频资源，请用猫抓图标下载');
+        return;
       }
-
-      // 3) 兜底提示
-      if (/^blob:/i.test(src)) toast('未取到直链（blob 流），请点猫抓图标下载');
-      else toast('未找到可下载的视频资源，请用猫抓');
+      if (vids.length === 1) {
+        const it = vids[0];
+        const nm = nameFromUrl(it.url);
+        const r = await requestDownload(it.url, nm);
+        if (r && r.ok) { toast('已触发下载：' + nm); return; }
+        toast('下载失败：' + ((r && r.error) || '未知'));
+        return;
+      }
+      // 3) 多候选：弹面板让用户精确选择，避免下错
+      toast('检测到 ' + vids.length + ' 个视频，请在右上角面板选择');
+      showChoices(vids);
     } catch (e) {
       toast('下载出错：' + ((e && e.message) || e));
     }
